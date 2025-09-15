@@ -31,16 +31,16 @@ void loop() {
   Serial.println("]");
 
   if (estadoSensor1 == HIGH) {
-    Serial.println(">>> Sensor 1 detectou PRETO!");
+    Serial.println(">>> Sensor 1 detectou NEGROS NIGGAS!");
   }
   if (estadoSensor2 == HIGH) {
-    Serial.println(">>> Sensor 2 detectou PRETO!");
+    Serial.println(">>> Sensor 2 detectou NEGROS NIGGAS!");
   }
   if (estadoSensor3 == HIGH) {
-    Serial.println(">>> Sensor 3 detectou PRETO!");
+    Serial.println(">>> Sensor 3 detectou NEGROS NIGGAS!");
   }
   if (estadoSensor4 == HIGH) {
-    Serial.println(">>> Sensor 4 detectou PRETO!");
+    Serial.println(">>> Sensor 4 detectou NEGROS NIGGAS!");
   }
 
   Serial.println("---------------------------------");
