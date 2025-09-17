@@ -1,6 +1,6 @@
 /*
- * CÓDIGO COMPLETO - Seguidor de Linha com 2 Sensores IR
- * Inclui as funções de controle dos motores no final do arquivo.
+ * CÓDIGO CORRIGIDO - Lógica Invertida
+ * Agora o robô seguirá a linha PRETA.
  */
 
 // --- PINOS DOS MOTORES (do SEU código que funcionou) ---
@@ -17,7 +17,7 @@
 #define pinoSensorDireita  7
 
 // Velocidade dos motores (0 = parado, 255 = máximo)
-const int VELOCIDADE = 180; // Comece com uma velocidade menor para facilitar os testes
+const int VELOCIDADE = 180; 
 
 void setup() {
   Serial.begin(9600);
@@ -34,11 +34,12 @@ void setup() {
   pinMode(pinoSensorEsquerda, INPUT);
   pinMode(pinoSensorDireita, INPUT);
 
-  Serial.println("Robô com 2 sensores pronto!");
+  Serial.println("Robô pronto para seguir o PRETO!");
 }
 
 void loop() {
-  // Lê o estado de cada sensor. HIGH (1) = Preto, LOW (0) = Branco
+  // Lê o estado de cada sensor.
+  // No seu sensor: LOW (0) = Preto, HIGH (1) = Branco
   int estadoEsquerda = digitalRead(pinoSensorEsquerda);
   int estadoDireita  = digitalRead(pinoSensorDireita);
 
@@ -47,30 +48,30 @@ void loop() {
   Serial.print(" | Direita: ");
   Serial.println(estadoDireita);
 
-  // --- LÓGICA DE DECISÃO PARA 2 SENSORES ---
+  // --- LÓGICA DE DECISÃO CORRIGIDA ---
 
-  // Se ambos veem BRANCO (0, 0), a linha está no meio. Vá para FRENTE.
-  if (estadoEsquerda == LOW && estadoDireita == LOW) {
+  // Se ambos veem BRANCO (HIGH, HIGH), a linha preta está no meio. Vá para FRENTE.
+  if (estadoEsquerda == HIGH && estadoDireita == HIGH) {
     frente();
   }
-  // Se o sensor ESQUERDO vê PRETO (1, 0), o robô desviou para a direita. Vire à ESQUERDA.
-  else if (estadoEsquerda == HIGH && estadoDireita == LOW) {
+  // Se o sensor ESQUERDO vê PRETO (LOW, HIGH), o robô desviou para a direita. Vire à ESQUERDA.
+  else if (estadoEsquerda == LOW && estadoDireita == HIGH) {
     esquerda();
   }
-  // Se o sensor DIREITO vê PRETO (0, 1), o robô desviou para a esquerda. Vire à DIREITA.
-  else if (estadoEsquerda == LOW && estadoDireita == HIGH) {
+  // Se o sensor DIREITO vê PRETO (HIGH, LOW), o robô desviou para a esquerda. Vire à DIREITA.
+  else if (estadoEsquerda == HIGH && estadoDireita == LOW) {
     direita();
   }
-  // Se ambos veem PRETO (1, 1), é um cruzamento ou erro. PARE.
+  // Se ambos veem PRETO (LOW, LOW), é um cruzamento ou erro. PARE.
   else {
     parar();
   }
   
-  delay(10); // Um delay pequeno é bom para estabilidade
+  delay(10);
 }
 
 
-// --- FUNÇÕES DE CONTROLE DOS MOTORES (ESTA PARTE ESTAVA FALTANDO) ---
+// --- FUNÇÕES DE CONTROLE DOS MOTORES (Não mudam) ---
 
 void frente() {
   digitalWrite(IN1, HIGH);
