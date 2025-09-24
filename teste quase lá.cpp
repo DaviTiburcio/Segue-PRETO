@@ -25,7 +25,7 @@
 // --- VELOCIDADES ---
 const int VELOCIDADE = 80;        
 const int VELOCIDADE_CURVA = 120;  
-const int DISTANCIA_OBSTACULO = 30; // cm
+const int DISTANCIA_OBSTACULO = 20; // cm
 
 // --- TEMPOS DA MANOBRA DE DESVIO (ms) ---
 const int TEMPO_RE        = 400;
@@ -34,7 +34,11 @@ const int TEMPO_FRENTE1   = 600;
 const int TEMPO_ESQUERDA1 = 200;
 const int TEMPO_FRENTE2   = 700;
 const int TEMPO_ESQUERDA2 = 200;
-const int TEMPO_FRENTE3   = 200;
+const int TEMPO_FRENTE3   = 400;
+
+// --- TEMPORIZADOR PARA PARADA ---
+unsigned long tempoSemLinha = 0;
+const unsigned long TEMPO_PARADA = 300; // 1 segundo
 
 // === SETUP ===
 void setup() {
@@ -71,7 +75,7 @@ void loop() {
   delay(10);
 }
 
-// === SEGUE LINHA SEM PARAR ===
+// === SEGUE LINHA COM PARADA DE 1S ===
 void segueLinha() {
   int esq  = digitalRead(SENSOR_ESQ);
   int meio = digitalRead(SENSOR_MEIO);
@@ -82,26 +86,39 @@ void segueLinha() {
   Serial.print(" | D: "); Serial.println(dir);
 
   if (meio == HIGH && esq == LOW && dir == LOW) {
-    frente();   // só meio = reto
+    frente();
+    tempoSemLinha = 0; // reset temporizador
   }
   else if (esq == HIGH && meio == LOW && dir == LOW) {
-    curva90Esq(); // curva fechada esquerda
+    curva90Esq();
+    tempoSemLinha = 0;
   }
   else if (dir == HIGH && meio == LOW && esq == LOW) {
-    curva90Dir(); // curva fechada direita
+    curva90Dir();
+    tempoSemLinha = 0;
   }
   else if (esq == HIGH && meio == HIGH && dir == LOW) {
-    esquerda(); // leve esquerda
+    esquerda();
+    tempoSemLinha = 0;
   }
   else if (dir == HIGH && meio == HIGH && esq == LOW) {
-    direita();  // leve direita
+    direita();
+    tempoSemLinha = 0;
   }
   else if (esq == HIGH && meio == HIGH && dir == HIGH) {
-    frente();   // cruzamento
+    frente();
+    tempoSemLinha = 0;
   }
   else {
-    // Nenhum sensor ativo: manter último movimento ou seguir reto
-    frente();
+    // Nenhum sensor ativo
+    if (tempoSemLinha == 0) {
+      tempoSemLinha = millis();
+      frente(); // manter movimento inicial
+    } else if (millis() - tempoSemLinha >= TEMPO_PARADA) {
+      parar(); // parou após 1 segundo sem linha
+    } else {
+      frente(); // mantém movimento até atingir 1s
+    }
   }
 }
 
