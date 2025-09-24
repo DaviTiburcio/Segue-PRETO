@@ -1,111 +1,236 @@
-const int SENSOR_PINS[] = {A0, A1, A2, A3};
-const int NUM_SENSORS = sizeof(SENSOR_PINS) / sizeof(int);
-const int ENA = 5, IN1 = 4, IN2 = 3;
-const int ENB = 6, IN3 = 8, IN4 = 7;
-const int LED_PIN = 13;
+/*
+ * Robô seguidor de linha com 4 sensores + desvio de obstáculo
+ * Sensores IR: Esquerda (4), Meio (7), Direita (2), Traseiro (8)
+ * Ultrassônico: TRIG=13, ECHO=12
+ * Lógica: HIGH = PRETO, LOW = BRANCO
+ */
 
-const int CALIBRATION_TIME = 5000;
-unsigned int sensorMin[NUM_SENSORS];
-unsigned int sensorMax[NUM_SENSORS];
+// --- PINOS DOS MOTORES ---
+#define ENA 3  
+#define IN1 5
+#define IN2 6
+#define ENB 11  
+#define IN3 9
+#define IN4 10
 
-const int LINE_THRESHOLD = 300;
-const int CENTER_POSITION = (NUM_SENSORS - 1) * 1000 / 2;
+// --- PINOS DOS SENSORES IR ---
+#define SENSOR_ESQ   4
+#define SENSOR_MEIO  7
+#define SENSOR_DIR   2
+#define SENSOR_TRAS  8
 
-float Kp = 0.1;
-float Ki = 0.0001;
-float Kd = 4.0;
+// --- ULTRASSÔNICO ---
+#define TRIG 13
+#define ECHO 12
 
-int MAX_SPEED = 220;
-int CRUISE_SPEED = 160;
-int TURN_SPEED = 100;
+// --- VELOCIDADES ---
+const int VELOCIDADE = 90;        
+const int VELOCIDADE_CURVA = 120;  
+const int DISTANCIA_OBSTACULO = 20; // cm
 
-float error = 0;
-float lastError = 0;
-float integral = 0;
-const float INTEGRAL_LIMIT = 3000;
+// --- TEMPOS MANOBRA DESVIO (ms) ---
+const int TEMPO_RE        = 400;
+const int TEMPO_DIREITA   = 600;
+const int TEMPO_FRENTE1   = 800;
+const int TEMPO_ESQUERDA1 = 600;
+const int TEMPO_FRENTE2   = 900;
+const int TEMPO_ESQUERDA2 = 600;
+const int TEMPO_FRENTE3   = 400;
 
+// --- TEMPORIZADOR PARA PARADA ---
+unsigned long tempoSemLinha = 0;
+const unsigned long TEMPO_PARADA = 1000; // 1 segundo
+
+// --- VARIÁVEIS PARA RÉ COM GIRO TRAS ---
+bool giraEsq = true;
+unsigned long tempoReGiro = 0;
+const unsigned long TEMPO_RE_LIMITE = 700; // tempo de ré com giro em ms
+
+// === SETUP ===
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
+
   pinMode(ENA, OUTPUT);
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(ENB, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
-  pinMode(LED_PIN, OUTPUT);
-  delay(1000);
-  calibrateSensors();
+
+  pinMode(SENSOR_ESQ, INPUT);
+  pinMode(SENSOR_MEIO, INPUT);
+  pinMode(SENSOR_DIR, INPUT);
+  pinMode(SENSOR_TRAS, INPUT);
+
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+
+  Serial.println("Robô iniciado (4 sensores + desvio)!");
 }
 
+// === LOOP PRINCIPAL ===
 void loop() {
-  error = readLinePosition();
-  integral += error;
-  integral = constrain(integral, -INTEGRAL_LIMIT, INTEGRAL_LIMIT);
-  float derivative = error - lastError;
-  float correction = (Kp * error) + (Ki * integral) + (Kd * derivative);
-  lastError = error;
-  int currentSpeed = map(abs(error), 0, CENTER_POSITION, MAX_SPEED, TURN_SPEED);
-  currentSpeed = constrain(currentSpeed, TURN_SPEED, MAX_SPEED);
-  setMotorSpeeds(currentSpeed, correction);
+  long distancia = medirDistancia();
+
+  if (distancia > 0 && distancia < DISTANCIA_OBSTACULO) {
+    Serial.println("Obstáculo detectado! Executando manobra...");
+    desviarObstaculo();
+  } else {
+    segueLinha();
+  }
+
+  delay(10);
 }
 
-void calibrateSensors() {
-  digitalWrite(LED_PIN, HIGH);
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    sensorMin[i] = 1023;
-    sensorMax[i] = 0;
+// === SEGUE LINHA COM 4 SENSORES ===
+void segueLinha() {
+  int esq  = digitalRead(SENSOR_ESQ);
+  int meio = digitalRead(SENSOR_MEIO);
+  int dir  = digitalRead(SENSOR_DIR);
+  int tras = digitalRead(SENSOR_TRAS);
+
+  Serial.print("E: "); Serial.print(esq);
+  Serial.print(" | M: "); Serial.print(meio);
+  Serial.print(" | D: "); Serial.print(dir);
+  Serial.print(" | T: "); Serial.println(tras);
+
+  // --- Lógica de movimento ---
+  if (meio == HIGH && esq == LOW && dir == LOW) {
+    frente(); tempoSemLinha = 0;
   }
-  long startTime = millis();
-  while (millis() - startTime < CALIBRATION_TIME) {
-    for (int i = 0; i < NUM_SENSORS; i++) {
-      int reading = analogRead(SENSOR_PINS[i]);
-      if (reading < sensorMin[i]) sensorMin[i] = reading;
-      if (reading > sensorMax[i]) sensorMax[i] = reading;
+  else if (esq == HIGH && meio == LOW && dir == LOW) {
+    curva90Esq(); tempoSemLinha = 0;
+  }
+  else if (dir == HIGH && meio == LOW && esq == LOW) {
+    curva90Dir(); tempoSemLinha = 0;
+  }
+  else if (esq == HIGH && meio == HIGH && dir == LOW) {
+    esquerda(); tempoSemLinha = 0;
+  }
+  else if (dir == HIGH && meio == HIGH && esq == LOW) {
+    direita(); tempoSemLinha = 0;
+  }
+  else if (esq == HIGH && meio == HIGH && dir == HIGH) {
+    frente(); tempoSemLinha = 0;
+  }
+  // --- Traseiro sozinho detecta ---
+  else if (tras == HIGH && esq == LOW && meio == LOW && dir == LOW) {
+    if (tempoReGiro == 0) tempoReGiro = millis();
+
+    if (millis() - tempoReGiro <= TEMPO_RE_LIMITE) {
+      if (giraEsq) {
+        Serial.println("Ré com giro à esquerda (traseiro ativo)");
+        reGiroEsq();
+      } else {
+        Serial.println("Ré com giro à direita (traseiro ativo)");
+        reGiroDir();
+      }
+    } else {
+      parar();
+      giraEsq = !giraEsq;  // alterna direção para próxima vez
+      tempoReGiro = 0;
+    }
+    tempoSemLinha = 0;
+  }
+  else {
+    // Nenhum sensor ativo → verifica temporizador
+    if (tempoSemLinha == 0) {
+      tempoSemLinha = millis();
+      frente();
+    } else if (millis() - tempoSemLinha >= TEMPO_PARADA) {
+      parar();
+    } else {
+      frente();
     }
   }
-  digitalWrite(LED_PIN, LOW);
 }
 
-float readLinePosition() {
-  float average = 0;
-  float sum = 0;
-  bool lineDetected = false;
-  for (int i = 0; i < NUM_SENSORS; i++) {
-    int rawValue = analogRead(SENSOR_PINS[i]);
-    unsigned int calibratedValue = map(rawValue, sensorMin[i], sensorMax[i], 0, 1000);
-    if (calibratedValue > LINE_THRESHOLD) {
-      lineDetected = true;
-    }
-    average += (float)calibratedValue * (i * 1000);
-    sum += calibratedValue;
-  }
-  if (!lineDetected) {
-    if (lastError > (CENTER_POSITION / 2)) return CENTER_POSITION;
-    else if (lastError < -(CENTER_POSITION / 2)) return -CENTER_POSITION;
-    else return 0;
-  }
-  return (average / sum) - CENTER_POSITION;
+// === MANOBRA DE DESVIO ===
+void desviarObstaculo() {
+  parar(); delay(200);
+
+  re();       delay(TEMPO_RE);        parar(); delay(200);
+  direita();  delay(TEMPO_DIREITA);   parar(); delay(200);
+  frente();   delay(TEMPO_FRENTE1);   parar(); delay(200);
+  esquerda(); delay(TEMPO_ESQUERDA1); parar(); delay(200);
+  frente();   delay(TEMPO_FRENTE2);   parar(); delay(200);
+  esquerda(); delay(TEMPO_ESQUERDA2); parar(); delay(200);
+  frente();   delay(TEMPO_FRENTE3);   parar(); delay(200);
 }
 
-void setMotorSpeeds(int base_speed, float correction) {
-  int leftSpeed = base_speed - correction;
-  int rightSpeed = base_speed + correction;
-  if (leftSpeed >= 0) {
-    digitalWrite(IN1, HIGH);
-    digitalWrite(IN2, LOW);
-    analogWrite(ENA, constrain(leftSpeed, 0, 255));
-  } else {
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, HIGH);
-    analogWrite(ENA, constrain(abs(leftSpeed), 0, 255));
+// === FUNÇÕES DE MOVIMENTO ===
+void frente() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  analogWrite(ENA, VELOCIDADE);
+  analogWrite(ENB, VELOCIDADE);
+}
+
+void re() {
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, VELOCIDADE_CURVA);
+  analogWrite(ENB, VELOCIDADE_CURVA);
+}
+
+void direita() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  analogWrite(ENA, VELOCIDADE_CURVA);
+  analogWrite(ENB, VELOCIDADE_CURVA);
+}
+
+void esquerda() {
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  analogWrite(ENA, VELOCIDADE_CURVA);
+  analogWrite(ENB, VELOCIDADE_CURVA);
+}
+
+// --- Ré com giro ---
+void reGiroEsq() {
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, VELOCIDADE);       
+  analogWrite(ENB, VELOCIDADE_CURVA); 
+}
+
+void reGiroDir() {
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, VELOCIDADE_CURVA); 
+  analogWrite(ENB, VELOCIDADE);       
+}
+
+// === CURVAS 90° AUTOMÁTICAS ===
+void curva90Esq() {
+  while (digitalRead(SENSOR_MEIO) == LOW) {
+    esquerda();
   }
-  if (rightSpeed >= 0) {
-    digitalWrite(IN3, HIGH);
-    digitalWrite(IN4, LOW);
-    analogWrite(ENB, constrain(rightSpeed, 0, 255));
-  } else {
-    digitalWrite(IN3, LOW);
-    digitalWrite(IN4, HIGH);
-    analogWrite(ENB, constrain(abs(rightSpeed), 0, 255));
+  parar();
+}
+
+void curva90Dir() {
+  while (digitalRead(SENSOR_MEIO) == LOW) {
+    direita();
   }
+  parar();
+}
+
+void parar() {
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+}
+
+// === FUNÇÃO ULTRASSÔNICO ===
+long medirDistancia() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+
+  long duracao = pulseIn(ECHO, HIGH, 20000);
+  long distancia = duracao * 0.034 / 2;
+  return distancia;
 }
