@@ -1,4 +1,3 @@
-
 /*
  * Robô seguidor de linha com 3 sensores + desvio de obstáculo
  * Sensores IR: Esquerda (4), Meio (7), Direita (2)
@@ -26,14 +25,14 @@
 // --- VELOCIDADES ---
 const int VELOCIDADE = 80;        
 const int VELOCIDADE_CURVA = 120;  
-const int DISTANCIA_OBSTACULO = 15; // cm
+const int DISTANCIA_OBSTACULO = 30; // cm
 
 // --- TEMPOS DA MANOBRA DE DESVIO (ms) ---
 const int TEMPO_RE        = 400;
 const int TEMPO_DIREITA   = 200;
 const int TEMPO_FRENTE1   = 600;
 const int TEMPO_ESQUERDA1 = 200;
-const int TEMPO_FRENTE2   = 500;
+const int TEMPO_FRENTE2   = 700;
 const int TEMPO_ESQUERDA2 = 200;
 const int TEMPO_FRENTE3   = 200;
 
@@ -72,7 +71,7 @@ void loop() {
   delay(10);
 }
 
-// === SEGUE LINHA ===
+// === SEGUE LINHA SEM PARAR ===
 void segueLinha() {
   int esq  = digitalRead(SENSOR_ESQ);
   int meio = digitalRead(SENSOR_MEIO);
@@ -101,7 +100,8 @@ void segueLinha() {
     frente();   // cruzamento
   }
   else {
-    parar();    // nenhum sensor ativo
+    // Nenhum sensor ativo: manter último movimento ou seguir reto
+    frente();
   }
 }
 
@@ -147,6 +147,7 @@ void esquerda() {
   analogWrite(ENB, VELOCIDADE_CURVA);
 }
 
+// === CURVAS 90° AUTOMÁTICAS ===
 void curva90Esq() {
   while (digitalRead(SENSOR_MEIO) == LOW) {
     esquerda();
